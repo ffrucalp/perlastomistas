@@ -55,6 +55,10 @@
     --rose-draw:  #a6802c;
     --sel-bg:     rgba(156,122,50,.22);
     --sel-tx:     #2c2418;
+    /* Velo sobre las fotos del hero (tema claro) */
+    --hero-veil-top: rgba(244,236,217,.80);
+    --hero-veil-mid: rgba(244,236,217,.72);
+    --hero-veil-bot: rgba(236,224,199,.94);
   }
   :root[data-theme="dark"]{
     /* ===== TEMA OSCURO — noche del scriptorium ===== */
@@ -78,6 +82,10 @@
     --rose-draw:  var(--gold);
     --sel-bg:     rgba(201,162,75,.28);
     --sel-tx:     #fff;
+    /* Velo sobre las fotos del hero (tema oscuro) */
+    --hero-veil-top: rgba(12,14,21,.78);
+    --hero-veil-mid: rgba(12,14,21,.70);
+    --hero-veil-bot: rgba(12,14,21,.95);
   }
 
   *{ box-sizing:border-box; margin:0; padding:0; }
@@ -123,6 +131,29 @@
     position:absolute; inset:0;
     background:radial-gradient(130% 110% at 50% 45%, transparent 55%, var(--vignette) 100%);
     pointer-events:none;
+    z-index:1;
+  }
+
+  /* ===== Fotos de fondo (lugares de Santo Tomás) ===== */
+  .hero-bg{ position:absolute; inset:0; z-index:0; overflow:hidden; pointer-events:none; will-change:transform; }
+  .hero-bg .slide{
+    position:absolute; inset:-3%;
+    background-size:cover; background-position:center;
+    opacity:0; transition:opacity 2.4s ease;
+    animation:kenburns 20s ease-in-out infinite alternate;
+    will-change:transform, opacity;
+  }
+  .hero-bg .slide.show{ opacity:1; }
+  @keyframes kenburns{
+    from{ transform:scale(1.06) translate(0,0); }
+    to{   transform:scale(1.18) translate(-2%, -1.5%); }
+  }
+  /* Velo que funde las fotos con el color del tema y protege la lectura */
+  .hero-bg::after{
+    content:""; position:absolute; inset:0;
+    background:
+      radial-gradient(115% 80% at 50% 42%, var(--hero-veil-mid) 0%, var(--hero-veil-mid) 32%, transparent 78%),
+      linear-gradient(180deg, var(--hero-veil-top) 0%, transparent 28%, transparent 66%, var(--hero-veil-bot) 100%);
   }
 
   .pearls{ position:absolute; inset:0; pointer-events:none; z-index:0; }
@@ -723,6 +754,7 @@
 
   <!-- ===================== HERO ===================== -->
   <header class="hero">
+    <div class="hero-bg" id="heroBg" aria-hidden="true"></div>
     <div class="pearls" id="pearls" aria-hidden="true"></div>
 
     <svg class="rose" viewBox="0 0 100 100" aria-hidden="true">
@@ -1147,6 +1179,7 @@ const lectorInner = document.getElementById("lectorInner");
 let lastFocused = null;
 let currentPearl = null;
 let currentSourceUrl = "";
+let currentDatas = null;
 
 function slugFor(p){
   return (p.parte + "-" + p.cita).toLowerCase()
@@ -1163,6 +1196,42 @@ function shareUrlFor(p){
 }
 function shareTextFor(p){
   return `Perlas de Santo Tomás\n“${p.titulo}”\nSuma Teológica · ${p.cita}\n\n${shareUrlFor(p)}`;
+}
+// Texto completo de la perla (lo que se lee en el lector), en texto plano para copiar.
+function pearlPlainText(p, datas){
+  const L = [];
+  L.push(p.titulo);
+  L.push(`Suma Teológica · ${p.cita}`);
+  if (datas[0] && datas[0].data && datas[0].data.titulo) L.push(datas[0].data.titulo);
+  L.push("");
+  datas.forEach(({ref, data}) => {
+    let arts = data.articulos;
+    if (ref.arts && ref.arts.length) arts = arts.filter(a => ref.arts.includes(a.num));
+    arts.forEach(a => {
+      const t = a.titulo.replace(/^Art[íi]culo\s+\d+:\s*/i, "");
+      L.push(a.num ? `Artículo ${a.num}. ${t}` : t);
+      L.push("");
+      if (a.objeciones.length){
+        L.push("Objeciones:");
+        a.objeciones.forEach(o => L.push("• " + o));
+        L.push("");
+      }
+      if (a.sedContra){ L.push("Por el contrario:"); L.push(a.sedContra); L.push(""); }
+      if (a.respondo.length){
+        L.push("Respondo:");
+        a.respondo.forEach(o => L.push(o));
+        L.push("");
+      }
+      if (a.adObj.length){
+        L.push("A las objeciones:");
+        a.adObj.forEach(o => L.push("• " + o));
+        L.push("");
+      }
+    });
+  });
+  L.push("———");
+  L.push(`Perlas de Santo Tomás · ${shareUrlFor(p)}`);
+  return L.join("\n").replace(/\n{3,}/g, "\n\n").trim();
 }
 
 let toastTimer = null;
@@ -1203,7 +1272,9 @@ async function openPearl(p){
       datas.push({ ref, data: await fetchQuestion(p.parte, ref.q) });
     }
     renderPearl(p, datas);
+    currentDatas = datas;
   } catch(err){
+    currentDatas = null;
     renderError(p, err);
   }
 }
@@ -1304,7 +1375,9 @@ document.getElementById("btnShare").addEventListener("click", () => {
 });
 document.getElementById("btnCopy").addEventListener("click", async () => {
   if (!currentPearl) return;
-  const text = shareTextFor(currentPearl);
+  const text = (currentDatas && currentDatas.length)
+    ? pearlPlainText(currentPearl, currentDatas)
+    : shareTextFor(currentPearl);
   const btn = document.getElementById("btnCopy");
   try {
     if (navigator.clipboard && navigator.clipboard.writeText){
@@ -1317,7 +1390,7 @@ document.getElementById("btnCopy").addEventListener("click", async () => {
     }
     btn.classList.add("ok");
     setTimeout(() => btn.classList.remove("ok"), 1600);
-    toast("Copiado al portapapeles");
+    toast("Texto de la perla copiado");
   } catch(e){
     toast("No se pudo copiar");
   }
@@ -1373,6 +1446,70 @@ function revealCards(){
   revealOnScroll(document.querySelectorAll(".reveal"));
 }
 
+/* ============ FOTOS DE FONDO DEL HERO ============
+   Subí tus imágenes a una carpeta "img/" en el repo, con estos nombres
+   (o cambiá la lista). Usá fotos de DOMINIO PÚBLICO. Las que no existan
+   se omiten solas; si no hay ninguna, queda el fondo animado de siempre. */
+const HERO_IMAGES = [
+  "img/fossanova.jpg",     // Abadía de Fossanova (donde murió, 1274)
+  "img/santa-sabina.jpg",  // Convento de Santa Sabina, Roma
+  "img/paris.jpg",         // Universidad de París
+  "img/montecassino.jpg",  // Montecassino (sus primeros estudios)
+  "img/napoli.jpg",        // Universidad de Nápoles
+  "img/toscana.jpg"        // Paisaje medieval italiano
+];
+
+function initHeroBg(){
+  const host = document.getElementById("heroBg");
+  if (!host) return;
+  const slides = [];
+  let idx = 0, rotStarted = false, rotTimer = null;
+
+  function startRotation(){
+    if (rotStarted || reduce) return;
+    rotStarted = true;
+    rotTimer = setInterval(() => {
+      if (slides.length < 2) return;
+      slides[idx].classList.remove("show");
+      idx = (idx + 1) % slides.length;
+      slides[idx].classList.add("show");
+    }, 7000);
+  }
+
+  // Cargamos en orden; cada imagen que exista se suma al carrusel.
+  HERO_IMAGES.forEach((src, i) => {
+    const probe = new Image();
+    probe.onload = () => {
+      const div = document.createElement("div");
+      div.className = "slide";
+      div.style.backgroundImage = `url("${src}")`;
+      // pequeño desfase de Ken Burns para que no vayan iguales
+      div.style.animationDelay = (-i * 3) + "s";
+      host.appendChild(div);
+      slides.push(div);
+      if (slides.length === 1){
+        requestAnimationFrame(() => div.classList.add("show"));
+        startRotation();
+      }
+    };
+    probe.src = src;
+  });
+
+  // Parallax suave del fondo al hacer scroll en el hero
+  if (!reduce){
+    let ticking = false;
+    window.addEventListener("scroll", () => {
+      if (ticking) return;
+      ticking = true;
+      requestAnimationFrame(() => {
+        const y = window.scrollY;
+        if (y < window.innerHeight) host.style.transform = `translateY(${y * 0.22}px)`;
+        ticking = false;
+      });
+    }, { passive:true });
+  }
+}
+
 /* ============ PERLAS FLOTANTES EN EL HERO ============ */
 function seedPearls(){
   if (reduce) return;
@@ -1396,6 +1533,7 @@ document.addEventListener("DOMContentLoaded", () => {
   buildCatalog();
   revealCards();
   seedPearls();
+  initHeroBg();
 
   document.getElementById("search").addEventListener("input", applyFilter);
   document.querySelectorAll(".chip").forEach(chip => {
